@@ -1,110 +1,154 @@
 #ifndef OSMOBJECT_HPP
 #define OSMOBJECT_HPP
 
+#include "cgimap/types.hpp"
+#include "cgimap/util.hpp"
 
-#include "types.hpp"
-
+#include <boost/format.hpp>
 #include <boost/optional.hpp>
 #include <map>
 
-
-class OSMObject
-{
+class OSMObject {
 
 public:
+  OSMObject(){};
 
-	OSMObject() {};
+  virtual ~OSMObject(){};
+
+  void set_changeset(osm_changeset_id_t changeset) { m_changeset = changeset; }
+
+  void set_version(osm_version_t version) { m_version = version; }
+
+  void set_id(osm_nwr_signed_id_t id) { m_id = id; }
+
+  // Setters with string conversions
+
+  void set_changeset(const char *changeset) {
+
+    osm_changeset_id_t _changeset = 0;
+
+    try {
+	_changeset = std::stol(changeset);
+    } catch (std::invalid_argument& e) {
+	throw http::bad_request("Changeset is not numeric");
+    } catch (std::out_of_range& e) {
+	throw http::bad_request("Changeset number is too large");
+    }
+
+    if (_changeset <= 0) {
+	throw http::bad_request("Changeset must be a positive number");
+    }
+
+    set_changeset(_changeset);
+  }
+
+  void set_version(const char *version) {
+
+    int64_t _version = 0;
+
+    try {
+	_version = std::stoi(version);
+    } catch (std::invalid_argument& e) {
+	throw http::bad_request("Version is not numeric");
+    } catch (std::out_of_range& e) {
+	throw http::bad_request("Version value is too large");
+    }
+
+    if (_version < 0) {
+	throw http::bad_request("Version may not be negative");
+    }
+
+    set_version(_version);
+  }
+
+  void set_id(const char *id) {
+
+    osm_nwr_signed_id_t _id = 0;
+
+    try {
+	_id = std::stol(id);
+    } catch (std::invalid_argument& e) {
+	throw http::bad_request("Id is not numeric");
+    } catch (std::out_of_range& e) {
+	throw http::bad_request("Id number is too large");
+    }
+
+    if (_id == 0) {
+	throw http::bad_request("Id must be different from 0");
+    }
+
+    set_id(_id);
+  }
+
+  osm_changeset_id_t changeset() const { return *m_changeset; }
+
+  osm_version_t version() const { return *m_version; }
+
+  osm_nwr_signed_id_t id() const { return *m_id; }
+
+  bool has_changeset() const {  return ((m_changeset) ? true : false); }
+  bool has_id() const { return ((m_id) ? true : false); };
+  bool has_version() const { return ((m_version) ? true : false); }
 
 
-	void set_changeset(osm_changeset_id_t changeset) {
-		m_changeset = changeset;
-	}
+  std::map<std::string, std::string> tags() const { return m_tags; }
 
-	void set_version(osm_version_t version)
-	{
-		m_version = version;
-	}
+  void add_tag(std::string key, std::string value) {
 
-	void set_id(osm_nwr_signed_id_t id)
-	{
-		m_id = id;
-	}
+    if (key.empty()) {
+      throw http::bad_request(
+          (boost::format("Key may not be empty in object %1%") % to_string())
+              .str());
+    }
 
-	void set_visible(bool visible)
-	{
-		m_visible = visible;
-	}
+    if (unicode_strlen(key) > 255) {
+      throw http::bad_request(
+          (boost::format(
+               "Key has more than 255 unicode characters in object %1%") %
+           to_string())
+              .str());
+    }
 
-	// Setters with string conversions
+    if (unicode_strlen(value) > 255) {
+      throw http::bad_request(
+          (boost::format(
+               "Value has more than 255 unicode characters in object %1%") %
+           to_string())
+              .str());
+    }
 
-	void set_changeset(const char * changeset) {
+    if (!(m_tags.insert(std::pair<std::string, std::string>(key, value)))
+             .second) {
+      throw http::bad_request(
+          (boost::format("Element %1% has duplicate tags with key %2%") %
+           to_string() % key)
+              .str());
+    }
+  }
 
-		set_changeset(std::stol(changeset));
+  virtual bool is_valid() const {
+    // check if all mandatory fields have been set
+    if (!m_changeset)
+      throw http::bad_request(
+          "You need to supply a changeset to be able to make a change");
 
-	}
+    return (m_changeset && m_id && m_version);
+  }
 
-	void set_version(const char * version) {
+  virtual std::string get_type_name() = 0;
 
-		set_version(std::stoi(version));
-	}
+  virtual std::string to_string() {
 
-	void set_id(const char * id) {
-
-		set_id(std::stol(id));
-	}
-
-	osm_changeset_id_t changeset() const
-	{
-		return *m_changeset;
-	}
-
-	osm_version_t version() const
-	{
-		return *m_version;
-	}
-
-	osm_nwr_signed_id_t id() const
-	{
-		return *m_id;
-	}
-
-	bool visible() const {
-		return *m_visible;
-	}
-
-	std::map<std::string, std::string> tags() const
-	{
-		return m_tags;
-	}
-
-	void add_tag(std::string key, std::string value)
-	{
-
-		if (!(m_tags.insert(std::pair<std::string, std::string>(key, value))).second)
-		{
-			throw std::runtime_error ("Duplicate key");
-		}
-
-	}
-
-	bool is_valid() const {
-		// check if all mandatory fields have been set
-		return (m_changeset &&
-				m_id &&
-				m_version &&
-				m_visible);
-	}
-
+    return (boost::format("%1%/%2%") % get_type_name() % ((m_id) ? *m_id : 0))
+        .str();
+  }
 
 private:
-	boost::optional< osm_changeset_id_t >  m_changeset;
-	boost::optional< osm_nwr_signed_id_t > m_id;
-	boost::optional< osm_version_t >       m_version;
-	boost::optional< bool >                m_visible;
+  boost::optional<osm_changeset_id_t> m_changeset;
+  boost::optional<osm_nwr_signed_id_t> m_id;
+  boost::optional<osm_version_t> m_version;
 
-	std::map<std::string, std::string>     m_tags;
-
+  std::map<std::string, std::string> m_tags;
 };
 
 #endif
-

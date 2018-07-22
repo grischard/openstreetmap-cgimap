@@ -15,6 +15,10 @@
 #endif
 #include "cgimap/output_buffer.hpp"
 
+// Maximum bytes
+const unsigned long STDIN_MAX = 50000000;    // TODO: configurable parameter?
+
+
 /**
  * Contains the generic HTTP methods and classes involved in the
  * application. CGI-specific stuff is elsewhere, but this stuff
@@ -110,6 +114,16 @@ public:
   precondition_failed(const std::string &message);
 };
 
+/**
+ * The request is larger than the server is willing or able to process.
+ * Previously called "Request Entity Too Large"
+ */
+
+class payload_too_large : public exception {
+public:
+  payload_too_large(const std::string &message);
+};
+
 
 /**
  * The request resource could not be found, or is not handled
@@ -134,7 +148,7 @@ public:
 class gone : public exception {
 public:
   // TODO: fix up so that error message is meaningful
-  gone();
+  gone(const std::string &message = "");
 };
 
 /**
@@ -247,6 +261,9 @@ std::string list_methods(method m);
 // parse a single method string into a http::method enum, or return boost::none
 // if it's not a known value.
 boost::optional<method> parse_method(const std::string &);
+
+// parse CONTENT_LENGTH HTTP header
+unsigned long parse_content_length(const std::string &);
 
 std::ostream &operator<<(std::ostream &, method);
 

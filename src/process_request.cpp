@@ -17,23 +17,6 @@
 #include <boost/make_shared.hpp>
 #include <boost/tuple/tuple.hpp>
 
-/*
-// START DEMO
-#include "cgimap/backend/apidb/changeset_upload/changeset_updater.hpp"
-#include "cgimap/infix_ostream_iterator.hpp"
-#include "cgimap/backend/apidb/changeset_upload/node_updater.hpp"
-#include "cgimap/api06/changeset_upload/osmchange_handler.hpp"
-#include "cgimap/api06/changeset_upload/osmchange_tracking.hpp"
-#include "cgimap/backend/apidb/changeset_upload/relation_updater.hpp"
-#include "cgimap/backend/apidb/changeset_upload/transaction_manager.hpp"
-#include "types.hpp"
-#include "util.hpp"
-#include "cgimap/backend/apidb/changeset_upload/way_updater.hpp"
-#include "cgimap/api06/changeset_upload/osmchange_input_format.hpp"
-
-// END DEMO
-*/
-
 using std::runtime_error;
 using std::string;
 using std::ostringstream;
@@ -43,112 +26,6 @@ using boost::format;
 namespace al = boost::algorithm;
 namespace pt = boost::posix_time;
 namespace po = boost::program_options;
-
-
-/*
- *  DEMO ONLY
- *
- */
-/*
-void create_temporary_tables(Transaction_Manager& m) {
-
-        // old id with unique constraint!
-        m.exec(
-                        R"(CREATE TEMPORARY TABLE tmp_create_nodes 
-                                (                                                                        
-                                  id bigint NOT NULL DEFAULT nextval('current_nodes_id_seq'::regclass),  
-                                  latitude integer NOT NULL,
-                                  longitude integer NOT NULL,
-                                  changeset_id bigint NOT NULL,
-                                  visible boolean NOT NULL DEFAULT true,
-                                  "timestamp" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc'),
-                                  tile bigint NOT NULL,
-                                  version bigint NOT NULL DEFAULT 1,
-                                  old_id bigint NOT NULL UNIQUE,
-                                  PRIMARY KEY (id)) 
-                                )");
-
-        m.exec(
-                        R"(CREATE TEMPORARY TABLE tmp_create_ways 
-                                (                                                                        
-                                  id bigint NOT NULL DEFAULT nextval('current_ways_id_seq'::regclass),  
-                                  changeset_id bigint NOT NULL,
-                                  visible boolean NOT NULL DEFAULT true,
-                                  "timestamp" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc'),
-                                  version bigint NOT NULL DEFAULT 1,
-                                  old_id bigint NOT NULL UNIQUE,
-                                  PRIMARY KEY (id)) 
-                                )");
-
-        m.exec(
-                        R"(CREATE TEMPORARY TABLE tmp_create_relations 
-                                (                                                                        
-                                  id bigint NOT NULL DEFAULT nextval('current_relations_id_seq'::regclass),  
-                                  changeset_id bigint NOT NULL,
-                                  visible boolean NOT NULL DEFAULT true,
-                                  "timestamp" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc'),
-                                  version bigint NOT NULL DEFAULT 1,
-                                  old_id bigint NOT NULL UNIQUE,
-                                  PRIMARY KEY (id)) 
-                                )");
-
-}
-
-
-int demo()
-{
-
-  // Read file
-
-    std::ifstream ifs("/tmp/demo");
-    std::string data((std::istreambuf_iterator<char>(ifs)),
-                                       (std::istreambuf_iterator<char>()));
-
-    try {
-    int changeset = 1234;
-    int uid = 1;
-
-    Transaction_Manager m { "dbname=openstreetmap" };
-
-    std::shared_ptr<OSMChange_Tracking> change_tracking(std::make_shared<OSMChange_Tracking>());
-
-    std::unique_ptr<Changeset_Updater> changeset_updater(new Changeset_Updater(m, changeset, uid));
-    std::unique_ptr<Node_Updater> node_updater(new Node_Updater(m, change_tracking));
-    std::unique_ptr<Way_Updater> way_updater(new Way_Updater(m, change_tracking));
-    std::unique_ptr<Relation_Updater> relation_updater(new Relation_Updater(m, change_tracking));
-
-
-    changeset_updater->lock_current_changeset();
-
-    create_temporary_tables(m);
-
-    OSMChange_Handler handler(std::move(node_updater), std::move(way_updater), std::move(relation_updater),
-                    changeset, uid);
-
-    OSMChangeXMLParser parser(&handler);
-
-    parser.process_message(data);
-
-    handler.finish_processing();
-
-    changeset_updater->update_changeset(handler.get_num_changes(), handler.get_bbox());
-
-    m.commit();
-
-    std::cout << change_tracking->get_xml_diff_result();
-
-    } catch (const pqxx::sql_error &e) {
-            std::cerr << "SQL error: " << e.what() << std::endl;
-            std::cerr << "Query was: " << e.query() << std::endl;
-            return 2;
-    } catch (const std::exception &e) {
-            std::cerr << "Error: " << e.what() << std::endl;
-            return 1;
-    }
-
-}
-*/
-
 
 
 
@@ -164,6 +41,28 @@ void respond_404(const http::not_found &e, request &r) {
   r.add_header("Content-Length", "0");
   r.add_header("Cache-Control", "no-cache");
   r.put("");
+}
+
+void respond_401(const http::unauthorized &e, request &r) {
+  // According to rfc7235 we MUST send a WWW-Authenticate header field
+  logger::message(format("Returning with http error %1% with reason %2%") %
+                  e.code() % e.what());
+
+  std::string message(e.what());
+  std::ostringstream message_size;
+  message_size << message.size();
+
+  r.status(e.code());
+  r.add_header("Content-Type", "text/plain; charset=utf-8");
+//  r.add_header("WWW-Authenticate", R"(Basic realm="OpenStreetMap login required")");
+  r.add_header("WWW-Authenticate", R"(OAuth)");
+  r.add_header("Content-Length", message_size.str());
+  r.add_header("Cache-Control", "no-cache");
+
+  // output the message
+  r.put(message);
+
+  r.finish();
 }
 
 void respond_error(const http::exception &e, request &r) {
@@ -285,6 +184,8 @@ process_get_request(request &req, handler_ptr_t handler,
  */
 boost::tuple<string, size_t>
 process_post_request(request &req, handler_ptr_t handler,
+		    data_update_ptr data_update,
+                    const string &payload,
                     boost::optional<osm_user_id_t> user_id,
                     const string &ip, const string &generator) {
   // request start logging
@@ -292,14 +193,18 @@ process_post_request(request &req, handler_ptr_t handler,
   logger::message(format("Started request for %1% from %2%") % request_name %
                   ip);
 
-//  // constructor of responder handles dynamic validation (i.e: with db access).
-//  responder_ptr_t responder = handler->responder(selection);
+  boost::shared_ptr< payload_enabled_handler > pe_handler = boost::static_pointer_cast< payload_enabled_handler >(handler);
+
+  if (pe_handler == nullptr)
+    throw http::server_error("HTTP POST method is not payload enabled");
+
+  responder_ptr_t responder = pe_handler->responder(data_update, payload, user_id);
 
   // get encoding to use
   shared_ptr<http::encoding> encoding = get_encoding(req);
 
 //  // figure out best mime type
-//  mime::type best_mime_type = choose_best_mime_type(req, responder);
+  //mime::type best_mime_type = choose_best_mime_type(req, responder);
 
   mime::type best_mime_type = mime::type::text_xml;
 
@@ -320,9 +225,7 @@ process_post_request(request &req, handler_ptr_t handler,
 
   try {
 //    // call to write the response
-//    responder->write(o_formatter, generator, req.get_current_time());
-
-    //demo();
+    responder->write(o_formatter, generator, req.get_current_time());
 
     // ensure the request is finished
     req.finish();
@@ -480,12 +383,21 @@ bool show_redactions_requested(request &req) {
 
 } // anonymous namespace
 
+void process_request(request &req, rate_limiter &limiter,
+                     const std::string &generator, routes &route,
+                     boost::shared_ptr<data_selection::factory> factory,
+                     boost::shared_ptr<oauth::store> store)
+{ // TODO: temporary workaround only for test cases
+  process_request(req, limiter, generator, route, factory, boost::shared_ptr<data_update::factory>(nullptr), store);
+}
+
 /**
  * process a single request.
  */
 void process_request(request &req, rate_limiter &limiter,
                      const string &generator, routes &route,
                      boost::shared_ptr<data_selection::factory> factory,
+                     boost::shared_ptr<data_update::factory> update_factory,
                      boost::shared_ptr<oauth::store> store) {
   try {
     // get the client IP address
@@ -573,8 +485,12 @@ void process_request(request &req, rate_limiter &limiter,
         process_get_request(req, handler, selection, ip, generator);
 
     } else if (method == http::method::POST) {
+
+      std::string payload = req.get_payload();
+      auto data_update = update_factory->make_data_update();
+
       boost::tie(request_name, bytes_written) =
-          process_post_request(req, handler, user_id, ip, generator);
+          process_post_request(req, handler, data_update, payload, user_id, ip, generator);
 
     } else if (method == http::method::HEAD) {
       boost::tie(request_name, bytes_written) =
@@ -608,6 +524,10 @@ void process_request(request &req, rate_limiter &limiter,
     // encoded description of the error. not found errors are special - they're
     // passed back just as empty HTML documents.
     respond_404(e, req);
+
+  } catch (const http::unauthorized &e) {
+    // HTTP/401 unauthorized requires WWW-Authenticate header field
+    respond_401(e, req);
 
   } catch (const http::exception &e) {
     // errors here occur before we've started writing the response

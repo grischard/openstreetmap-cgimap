@@ -1,23 +1,27 @@
-#ifndef PARSER_CALLBACK_HPP
-#define PARSER_CALLBACK_HPP
+#ifndef API06_CHANGESET_UPLOAD_PARSER_CALLBACK_HPP
+#define API06_CHANGESET_UPLOAD_PARSER_CALLBACK_HPP
 
-#include "osmobject.hpp"
 #include "node.hpp"
-#include "way.hpp"
+#include "osmobject.hpp"
 #include "relation.hpp"
-#include "types.hpp"
-
+#include "cgimap/types.hpp"
+#include "way.hpp"
 
 class Parser_Callback {
 
 public:
 
-	virtual void node(const Node&, operation op, bool if_unused) = 0;
+  virtual void start_document() = 0;
 
-	virtual void way(const Way&, operation op, bool if_unused) = 0;
+  virtual void end_document() = 0;
 
-	virtual void relation(const Relation&, operation op, bool if_unused) = 0;
+  virtual void process_node(const Node &, operation op, bool if_unused) = 0;
 
+  virtual void process_way(const Way &, operation op, bool if_unused) = 0;
+
+  virtual void process_relation(const Relation &, operation op, bool if_unused) = 0;
+
+  virtual ~Parser_Callback(){};
 };
 
 #endif
